@@ -1,0 +1,13 @@
+{
+  "domain": "sh_gas",
+  "name": "Shanghai Gas",
+  "codeowners": ["@sunfly"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/sunfly/ha-sh-gas",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/sunfly/ha-sh-gas/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

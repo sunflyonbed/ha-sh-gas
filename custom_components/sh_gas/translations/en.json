@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Shanghai Gas",
+        "description": "Enter the captured token, customer id, and companyCode.",
+        "data": {
+          "customer_id": "Customer ID",
+          "token": "token",
+          "company_code": "companyCode"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to Shanghai Gas",
+      "invalid_auth": "Authentication failed. Check token, customer id, and companyCode",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This customer id is already configured"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "latest_consumption": {
+        "name": "Latest gas consumption"
+      },
+      "latest_amount": {
+        "name": "Latest bill amount"
+      },
+      "balance": {
+        "name": "Balance"
+      },
+      "pending_amount": {
+        "name": "Pending amount"
+      },
+      "current_reading": {
+        "name": "Current meter reading"
+      },
+      "latest_period": {
+        "name": "Latest period"
+      },
+      "next_read_date": {
+        "name": "Next read date"
+      }
+    }
+  }
+}

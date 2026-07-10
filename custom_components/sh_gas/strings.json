@@ -1,0 +1,48 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "上海燃气",
+        "description": "输入抓包得到的 token、户号和 companyCode。",
+        "data": {
+          "customer_id": "户号",
+          "token": "token",
+          "company_code": "companyCode"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "无法连接到上海燃气服务",
+      "invalid_auth": "认证失败，请检查 token、户号和 companyCode",
+      "unknown": "未知错误"
+    },
+    "abort": {
+      "already_configured": "该户号已经配置"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "latest_consumption": {
+        "name": "本次用气量"
+      },
+      "latest_amount": {
+        "name": "最近账单金额"
+      },
+      "balance": {
+        "name": "余额"
+      },
+      "pending_amount": {
+        "name": "待缴金额"
+      },
+      "current_reading": {
+        "name": "本次抄表读数"
+      },
+      "latest_period": {
+        "name": "最近账期"
+      },
+      "next_read_date": {
+        "name": "下次抄表日期"
+      }
+    }
+  }
+}
