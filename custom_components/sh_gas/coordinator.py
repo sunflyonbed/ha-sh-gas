@@ -5,9 +5,16 @@ from __future__ import annotations
 import logging
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import GasData, ShanghaiGasClient, ShGasConnectionError, ShGasError
+from .api import (
+    GasData,
+    ShanghaiGasClient,
+    ShGasAuthError,
+    ShGasConnectionError,
+    ShGasError,
+)
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,6 +37,8 @@ class ShGasDataUpdateCoordinator(DataUpdateCoordinator[GasData]):
         """Fetch data from Shanghai Gas."""
         try:
             return await self.client.async_refresh()
+        except ShGasAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
         except ShGasConnectionError as err:
             raise UpdateFailed(str(err)) from err
         except ShGasError as err:

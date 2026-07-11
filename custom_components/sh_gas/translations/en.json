@@ -3,21 +3,32 @@
     "step": {
       "user": {
         "title": "Shanghai Gas",
-        "description": "Enter the captured token, customer id, and companyCode.",
+        "description": "Enter your Shanghai Gas account credentials. The integration fetches image captchas and recognizes them locally with ddddocr.",
         "data": {
           "customer_id": "Customer ID",
-          "token": "token",
+          "mobile": "Mobile",
+          "password": "Password",
+          "company_code": "companyCode"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Log in to Shanghai Gas again",
+        "description": "The current login has expired. Enter your Shanghai Gas account credentials to log in again.",
+        "data": {
+          "mobile": "Mobile",
+          "password": "Password",
           "company_code": "companyCode"
         }
       }
     },
     "error": {
       "cannot_connect": "Cannot connect to Shanghai Gas",
-      "invalid_auth": "Authentication failed. Check token, customer id, and companyCode",
+      "invalid_auth": "Authentication failed. Check mobile, password, customer id, and companyCode",
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "This customer id is already configured"
+      "already_configured": "This customer id is already configured",
+      "reauth_successful": "Reauthentication successful"
     }
   },
   "entity": {

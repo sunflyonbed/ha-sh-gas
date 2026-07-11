@@ -1,6 +1,6 @@
 # Shanghai Gas for Home Assistant
 
-上海燃气 Home Assistant 自定义集成。当前基于上海燃气微信小程序接口实现，支持通过抓包得到的 `token`、户号和 `companyCode` 查询燃气账单/用气记录，并在 Home Assistant 中生成传感器实体。
+上海燃气 Home Assistant 自定义集成。当前基于上海燃气网站/微信小程序接口实现，支持使用账号密码登录，自动获取图形验证码并通过本地 `ddddocr` 识别，然后查询燃气账单/用气记录并在 Home Assistant 中生成传感器实体。
 
 ## 功能
 
@@ -43,11 +43,12 @@
 
 需要填写：
 
-- `token`：抓包中账单接口请求头里的 `token`。
+- 手机号：上海燃气账号手机号。
+- 密码：上海燃气账号密码。集成会在配置验证时转换为 MD5 后保存。
 - 户号：抓包和返回数据中的 `customerId`。
 - `companyCode`：账单接口请求体里的 `companyCode`，当前抓包为 `DZ`。
 
-集成不会主动登录，只会使用配置的 `token` 调用 `/v1/accountingService/queryBills` 查询账单。
+集成会调用 `/v1/thirdparty/common/img/getImgAuthCode` 获取图形验证码，使用本地 `ddddocr` 识别验证码，然后调用 `/v1/user/common/doLogin` 登录。登录返回的运行时 `token` 用于调用 `/v1/accountingService/queryBills` 查询账单；如果后续刷新时登录状态失效，集成会自动重新登录。
 
 同一个户号只能添加一次。
 
@@ -63,18 +64,20 @@
 - `sensor.*_latest_period`
 - `sensor.*_next_read_date`
 
-默认刷新间隔为 6 小时，避免对上海燃气接口产生不必要的高频请求。
+默认刷新间隔为 1 天，避免对上海燃气接口产生不必要的高频请求。
 
 ## 隐私
 
-`token`、户号、姓名、地址、openid、unionid 都属于敏感信息。集成不会主动把这些字段写入实体属性，diagnostics 也会脱敏。
+手机号、密码、密码 MD5、运行时 `token`、户号、姓名、地址、openid、unionid 都属于敏感信息。集成不会主动把这些字段写入实体属性，diagnostics 也会脱敏。
 
 提交 issue 或分享日志时，请先移除：
 
 - 户号
+- 手机号
+- 密码 / 密码 MD5
 - 姓名
 - 地址
-- token
+- 运行时 token
 - openid / unionid
 - cookie
 
@@ -82,8 +85,8 @@
 
 ## 当前限制
 
-- 当前只实现了抓包中已有的账单查询接口。
-- `token` 过期后需要重新抓包并更新配置；后续可以补充验证码登录和 reauth 流程。
+- 当前只实现了账号密码登录、图形验证码识别和账单查询接口。
+- 图形验证码识别依赖本地 `ddddocr`，验证码样式变化时可能需要重试或调整识别逻辑。
 - 暂不支持自动绑定户号、解绑银行卡、缴费或短信验证码流程。
 - 如果上海燃气调整小程序接口、请求头或风控策略，需要重新抓包并更新 API 客户端。
 
@@ -98,10 +101,10 @@ python3 scripts/query_sh_gas.py
 也可以通过 stdin 传 JSON：
 
 ```bash
-printf '%s\n' '{"token":"抓包里的token","customer_id":"户号","company_code":"DZ"}' | python3 scripts/query_sh_gas.py
+printf '%s\n' '{"mobile":"手机号","password":"原始密码","customer_id":"户号","company_code":"DZ"}' | python3 scripts/query_sh_gas.py
 ```
 
-脚本会打印接近 Home Assistant 实体结构的 JSON，方便确认接口请求和字段解析是否正确。
+脚本会获取图形验证码，使用本地 `ddddocr` 识别并登录，然后打印接近 Home Assistant 实体结构的 JSON，方便确认接口请求和字段解析是否正确。
 
 基础检查：
 

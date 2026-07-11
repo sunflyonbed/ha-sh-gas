@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+import logging
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -23,6 +24,8 @@ from .api import GasData
 from .const import DATA_COORDINATOR, DOMAIN
 from .coordinator import ShGasDataUpdateCoordinator
 from .entity import ShGasEntity
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -108,9 +111,11 @@ async def async_setup_entry(
     coordinator: ShGasDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id][
         DATA_COORDINATOR
     ]
-    async_add_entities(
+    entities = [
         ShGasSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS
-    )
+    ]
+    _LOGGER.debug("Adding %s Shanghai Gas sensors", len(entities))
+    async_add_entities(entities)
 
 
 class ShGasSensor(ShGasEntity, SensorEntity):
@@ -127,6 +132,13 @@ class ShGasSensor(ShGasEntity, SensorEntity):
         super().__init__(coordinator)
         self.entity_description = description
         self._attr_unique_id = f"{self._customer_id}_{description.key}"
+        self._attr_entity_registry_enabled_default = True
+        suffix = (
+            self._customer_id[-4:]
+            if len(self._customer_id) >= 4
+            else self._customer_id
+        )
+        self._attr_suggested_object_id = f"shanghai_gas_{suffix}_{description.key}"
 
     @property
     def native_value(self) -> StateType | date | None:

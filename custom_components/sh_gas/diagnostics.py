@@ -8,12 +8,20 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import CONF_COMPANY_CODE, CONF_CUSTOMER_ID, CONF_TOKEN
+from .const import (
+    CONF_COMPANY_CODE,
+    CONF_CUSTOMER_ID,
+    CONF_MOBILE,
+    CONF_PASSWORD,
+    CONF_PASSWORD_HASH,
+)
 
 TO_REDACT = {
     CONF_COMPANY_CODE,
     CONF_CUSTOMER_ID,
-    CONF_TOKEN,
+    CONF_MOBILE,
+    CONF_PASSWORD,
+    CONF_PASSWORD_HASH,
     "account_code",
     "accountId",
     "account_id",
@@ -21,7 +29,10 @@ TO_REDACT = {
     "customerAddress",
     "customerName",
     "customer_id",
+    "mobile",
     "openid",
+    "password",
+    "password_hash",
     "qrcode",
     "qrCode",
     "token",

@@ -3,3 +3,4 @@ __pycache__/
 .ruff_cache/
 *.py[cod]
 Reqable.md
+.venv/

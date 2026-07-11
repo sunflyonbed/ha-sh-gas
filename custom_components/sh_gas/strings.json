@@ -3,21 +3,32 @@
     "step": {
       "user": {
         "title": "上海燃气",
-        "description": "输入抓包得到的 token、户号和 companyCode。",
+        "description": "输入上海燃气账号密码。集成会自动获取图形验证码并使用本地 ddddocr 识别。",
         "data": {
           "customer_id": "户号",
-          "token": "token",
+          "mobile": "手机号",
+          "password": "密码",
+          "company_code": "companyCode"
+        }
+      },
+      "reauth_confirm": {
+        "title": "重新登录上海燃气",
+        "description": "当前登录已失效，请输入上海燃气账号密码重新登录。",
+        "data": {
+          "mobile": "手机号",
+          "password": "密码",
           "company_code": "companyCode"
         }
       }
     },
     "error": {
       "cannot_connect": "无法连接到上海燃气服务",
-      "invalid_auth": "认证失败，请检查 token、户号和 companyCode",
+      "invalid_auth": "认证失败，请检查手机号、密码、户号和 companyCode",
       "unknown": "未知错误"
     },
     "abort": {
-      "already_configured": "该户号已经配置"
+      "already_configured": "该户号已经配置",
+      "reauth_successful": "重新认证成功"
     }
   },
   "entity": {

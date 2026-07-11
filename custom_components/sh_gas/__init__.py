@@ -7,7 +7,8 @@ from typing import Any
 from .const import (
     CONF_COMPANY_CODE,
     CONF_CUSTOMER_ID,
-    CONF_TOKEN,
+    CONF_MOBILE,
+    CONF_PASSWORD_HASH,
     DATA_CLIENT,
     DATA_COORDINATOR,
     DEFAULT_COMPANY_CODE,
@@ -26,9 +27,10 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     session = async_get_clientsession(hass)
     client = ShanghaiGasClient(
         session=session,
-        token=str(entry.data[CONF_TOKEN]),
         customer_id=str(entry.data[CONF_CUSTOMER_ID]),
         company_code=str(entry.data.get(CONF_COMPANY_CODE, DEFAULT_COMPANY_CODE)),
+        mobile=str(entry.data.get(CONF_MOBILE) or "") or None,
+        password_hash=str(entry.data.get(CONF_PASSWORD_HASH) or "") or None,
     )
     coordinator = ShGasDataUpdateCoordinator(hass, client)
     await coordinator.async_config_entry_first_refresh()

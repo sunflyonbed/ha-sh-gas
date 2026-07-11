@@ -1,26 +1,38 @@
 #!/usr/bin/env python3
 """Query Shanghai Gas directly and print Home Assistant-like entities.
 
-This script is intentionally standalone and only uses the Python standard
-library, so it can validate the captured upstream API without Home Assistant.
+This script is intentionally standalone from Home Assistant. Password login
+mode requires ddddocr for local image captcha recognition.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
+from functools import lru_cache
+from getpass import getpass
 import gzip
+import hashlib
 import json
+import re
 import sys
 import time
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 BASE_URL = "https://mpshgas.huaqi-it.com.cn"
+WEB_API_BASE_URL = "https://web-api.shgas.com.cn"
 ORIGIN = "MiniPro"
+PC_ORIGIN = "PC"
 TIMEOUT = 20
+CAPTCHA_RETRIES = 3
 
+GET_CAPTCHA_PATH = "/v1/thirdparty/common/img/getImgAuthCode"
+LOGIN_PATH = "/v1/user/common/doLogin"
 QUERY_BILLS_PATH = "/v1/accountingService/queryBills"
 
 
@@ -32,9 +44,10 @@ class ShGasCliError(Exception):
 class InputData:
     """User input required by the Shanghai Gas API."""
 
-    token: str
     customer_id: str
     company_code: str
+    mobile: str
+    password: str
 
 
 @dataclass(frozen=True)
@@ -57,6 +70,7 @@ class AuthInfo:
 
     token: str
     account: GasAccount
+    method: str
 
 
 @dataclass(frozen=True)
@@ -99,19 +113,7 @@ def main() -> int:
     """Run the direct API check."""
     try:
         input_data = read_input()
-        auth = AuthInfo(
-            token=input_data.token,
-            account=GasAccount(
-                customer_id=input_data.customer_id,
-                company_code=input_data.company_code,
-                account_id=None,
-                account_code=None,
-                customer_name=None,
-                customer_address=None,
-                dept=None,
-                gas_class=None,
-            ),
-        )
+        auth = authenticate(input_data)
         gas_data = query_bills(input_data.customer_id, auth)
         output = build_output(input_data.customer_id, auth, gas_data)
     except ShGasCliError as err:
@@ -129,7 +131,7 @@ def main() -> int:
 
 
 def read_input() -> InputData:
-    """Read token/customer_id/company_code from stdin JSON or prompts."""
+    """Read login credentials from stdin JSON or prompts."""
     if not sys.stdin.isatty():
         raw = sys.stdin.read().strip()
         if raw:
@@ -138,24 +140,151 @@ def read_input() -> InputData:
             except json.JSONDecodeError as err:
                 raise ShGasCliError(f"stdin 不是有效 JSON: {err}") from err
             return InputData(
-                token=required_str(data, "token"),
                 customer_id=required_str(data, "customer_id", "customerId", "户号"),
                 company_code=optional_str(data.get("company_code"))
                 or optional_str(data.get("companyCode"))
                 or "DZ",
+                mobile=required_str(data, "mobile", "phone", "手机号"),
+                password=required_str(data, "password", "pwd", "密码"),
             )
         raise ShGasCliError("stdin 为空；请交互输入或传入 JSON")
 
-    token = input("token: ").strip()
     customer_id = input("户号 customer_id: ").strip()
     company_code = input("companyCode [DZ]: ").strip() or "DZ"
-    if not token or not customer_id:
-        raise ShGasCliError("token 和 customer_id 都不能为空")
+    mobile = input("手机号 mobile: ").strip()
+    password = getpass("密码 password: ").strip()
+
+    if not customer_id or not mobile or not password:
+        raise ShGasCliError("customer_id、mobile 和 password 都不能为空")
     return InputData(
-        token=token,
         customer_id=customer_id,
         company_code=company_code,
+        mobile=mobile,
+        password=password,
     )
+
+
+def authenticate(input_data: InputData) -> AuthInfo:
+    """Login with password captcha and build auth state."""
+    password_hash_value = password_hash(input_data.password)
+    last_error: ShGasCliError | None = None
+    for attempt in range(CAPTCHA_RETRIES):
+        try:
+            captcha = get_captcha()
+            img_auth_code = recognize_captcha(captcha["base64_image"])
+            auth = login_with_password(
+                mobile=input_data.mobile,
+                password_hash_value=password_hash_value,
+                customer_id=input_data.customer_id,
+                fallback_company_code=input_data.company_code,
+                imgid=captcha["imgid"],
+                img_auth_code=img_auth_code,
+            )
+            print(
+                f"验证码识别为 {img_auth_code}，第 {attempt + 1} 次登录成功",
+                file=sys.stderr,
+            )
+            return auth
+        except ShGasCliError as err:
+            last_error = err
+            print(f"第 {attempt + 1} 次登录失败: {err}", file=sys.stderr)
+
+    if last_error is not None:
+        raise last_error
+    raise ShGasCliError("登录失败")
+
+
+def get_captcha() -> dict[str, str]:
+    """Fetch captcha image data."""
+    data = request_json(
+        WEB_API_BASE_URL,
+        GET_CAPTCHA_PATH,
+        {"timestamp": timestamp_ms()},
+        token="",
+        headers=pc_headers(),
+        method="GET",
+    )
+    return {
+        "imgid": required_str(data, "imgid"),
+        "base64_image": required_str(data, "base64Image"),
+    }
+
+
+def recognize_captcha(base64_image: str) -> str:
+    """Recognize a four-character captcha with local ddddocr."""
+    image = decode_base64_image(base64_image)
+    result = captcha_ocr().classification(image)
+    if not isinstance(result, str):
+        raise ShGasCliError("ddddocr 返回了无效结果")
+    normalized = normalize_captcha_code(result)
+    if normalized is None:
+        raise ShGasCliError(f"验证码识别结果不是 4 位字符: {result!r}")
+    return normalized
+
+
+@lru_cache(maxsize=1)
+def captcha_ocr() -> Any:
+    """Create and cache the ddddocr model."""
+    try:
+        import ddddocr
+    except ImportError as err:
+        raise ShGasCliError(
+            "缺少 ddddocr，请先运行: python3 -m pip install ddddocr==1.6.1"
+        ) from err
+
+    return ddddocr.DdddOcr(show_ad=False)
+
+
+def login_with_password(
+    *,
+    mobile: str,
+    password_hash_value: str,
+    customer_id: str,
+    fallback_company_code: str,
+    imgid: str,
+    img_auth_code: str,
+) -> AuthInfo:
+    """Login with mobile/password and captcha."""
+    data = request_json(
+        WEB_API_BASE_URL,
+        LOGIN_PATH,
+        {
+            "mobile": mobile,
+            "method": "PWD",
+            "pwd": password_hash_value,
+            "smsAuthCode": "",
+            "imgid": imgid,
+            "imgAuthCode": img_auth_code,
+            "qrCode": "",
+            "origin": PC_ORIGIN,
+            "timestamp": timestamp_ms(),
+        },
+        token="",
+        headers=pc_headers(),
+    )
+
+    token = required_str(data, "token")
+    accounts = data.get("accountList")
+    if not isinstance(accounts, list):
+        raise ShGasCliError("登录响应缺少 accountList")
+
+    account = find_account(accounts, customer_id)
+    if account is None:
+        raise ShGasCliError("登录成功，但该账号未绑定指定户号")
+
+    if not account.company_code:
+        account = GasAccount(
+            customer_id=account.customer_id,
+            company_code=fallback_company_code,
+            account_id=account.account_id,
+            account_code=account.account_code,
+            customer_name=account.customer_name,
+            customer_address=account.customer_address,
+            dept=account.dept,
+            gas_class=account.gas_class,
+        )
+
+    return AuthInfo(token=token, account=account, method="password")
 
 
 def query_bills(customer_id: str, auth: AuthInfo) -> GasData:
@@ -166,7 +295,13 @@ def query_bills(customer_id: str, auth: AuthInfo) -> GasData:
         "origin": ORIGIN,
         "timestamp": timestamp_ms(),
     }
-    data = post_json(QUERY_BILLS_PATH, payload, token=auth.token)
+    data = request_json(
+        BASE_URL,
+        QUERY_BILLS_PATH,
+        payload,
+        token=auth.token,
+        headers=mini_program_headers(),
+    )
 
     raw_bills = data.get("bills")
     if not isinstance(raw_bills, list):
@@ -190,33 +325,32 @@ def query_bills(customer_id: str, auth: AuthInfo) -> GasData:
     )
 
 
-def post_json(
+def request_json(
+    base_url: str,
     path: str,
     payload: dict[str, Any],
     *,
     token: str | None,
+    headers: dict[str, str],
+    method: str = "POST",
 ) -> dict[str, Any]:
-    """POST JSON to the Shanghai Gas API."""
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 "
-            "MicroMessenger/7.0.20 MiniProgramEnv/Windows"
-        ),
-        "xweb_xhr": "1",
-        "Content-Type": "application/json;charset=UTF-8",
-        "Accept": "*/*",
-        "Referer": "https://servicewechat.com/wx037f99c4619a13bd/40/page-frame.html",
-    }
-    if token:
-        headers["token"] = token
+    """Send JSON API request to the Shanghai Gas API."""
+    body = None
+    url = f"{base_url}{path}"
+    if method == "GET":
+        url = f"{url}?{urlencode(payload)}"
+    else:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+    request_headers = dict(headers)
+    if token is not None:
+        request_headers["token"] = token
 
     request = Request(
-        f"{BASE_URL}{path}",
+        url,
         data=body,
-        method="POST",
-        headers=headers,
+        method=method,
+        headers=request_headers,
     )
 
     try:
@@ -251,6 +385,35 @@ def post_json(
         raise ShGasCliError(f"{msg}，resultCode={data.get('resultCode')}")
 
     return data
+
+
+def mini_program_headers() -> dict[str, str]:
+    """Return headers for the mini-program bill API."""
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36 "
+            "MicroMessenger/7.0.20 MiniProgramEnv/Windows"
+        ),
+        "xweb_xhr": "1",
+        "Content-Type": "application/json;charset=UTF-8",
+        "Accept": "*/*",
+        "Referer": "https://servicewechat.com/wx037f99c4619a13bd/40/page-frame.html",
+    }
+
+
+def pc_headers() -> dict[str, str]:
+    """Return headers for the Shanghai Gas website API."""
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json;charset=UTF-8",
+        "Origin": "https://www.shgas.com.cn",
+        "Referer": "https://www.shgas.com.cn/",
+    }
 
 
 def find_account(accounts: list[Any], customer_id: str) -> GasAccount | None:
@@ -316,6 +479,7 @@ def build_output(customer_id: str, auth: AuthInfo, gas_data: GasData) -> dict[st
         "ok": True,
         "auth": {
             "token": mask(auth.token),
+            "method": auth.method,
         },
         "account": {
             "customer_id": mask(customer_id),
@@ -421,6 +585,34 @@ def optional_str(value: Any) -> str | None:
     if isinstance(value, str) and value:
         return value
     return None
+
+
+def password_hash(password: str) -> str:
+    """Hash a plaintext password, or normalize an existing md5 value."""
+    password = password.strip()
+    if not password:
+        raise ShGasCliError("password 不能为空")
+    if re.fullmatch(r"[0-9a-fA-F]{32}", password):
+        return password.lower()
+    return hashlib.md5(password.encode()).hexdigest()
+
+
+def decode_base64_image(value: str) -> bytes:
+    """Decode a base64 captcha image."""
+    if "," in value:
+        value = value.split(",", 1)[1]
+    try:
+        return base64.b64decode(value)
+    except binascii.Error as err:
+        raise ShGasCliError("验证码图片不是有效 base64") from err
+
+
+def normalize_captcha_code(value: str) -> str | None:
+    """Normalize OCR text to the four-character captcha format."""
+    normalized = "".join(ch for ch in value.upper() if ch.isalnum())
+    if len(normalized) != 4:
+        return None
+    return normalized
 
 
 def parse_float(value: Any) -> float | None:

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from datetime import date
 
-from custom_components.sh_gas.api import _find_account, _parse_bill
+from custom_components.sh_gas.api import (
+    _find_account,
+    _normalize_captcha_code,
+    _parse_bill,
+    _password_hash,
+)
 
 
 def test_find_account_matches_customer_id() -> None:
@@ -55,3 +60,18 @@ def test_parse_bill() -> None:
     assert bill.consumption == 27.0
     assert bill.current_reading == 2576.0
     assert bill.next_read_date == date(2026, 6, 15)
+
+
+def test_password_hash_accepts_plaintext_and_existing_md5() -> None:
+    """Plain passwords are hashed and existing md5 values are preserved."""
+    assert _password_hash("password") == "5f4dcc3b5aa765d61d8327deb882cf99"
+    assert (
+        _password_hash("5F4DCC3B5AA765D61D8327DEB882CF99")
+        == "5f4dcc3b5aa765d61d8327deb882cf99"
+    )
+
+
+def test_normalize_captcha_code() -> None:
+    """OCR output is normalized to the four-character captcha format."""
+    assert _normalize_captcha_code(" g e1b ") == "GE1B"
+    assert _normalize_captcha_code("GE1") is None

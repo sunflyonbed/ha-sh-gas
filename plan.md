@@ -4,33 +4,40 @@
 
 参考 `ha-sh-water` 项目的结构，开发一个可通过 HACS 使用 GitHub 地址添加的 Home Assistant 自定义集成，用 Python 抓取上海燃气相关账单和用气数据，并在 Home Assistant 中以传感器实体展示。
 
-本项目集成域名为 `sh_gas`，仓库名为 `ha-sh-gas`。当前 token 模式用户输入项为：
+本项目集成域名为 `sh_gas`，仓库名为 `ha-sh-gas`。当前账号密码模式用户输入项为：
 
-- `token`：账单接口请求头里的 `token`
+- 手机号：上海燃气账号手机号
+- 密码：上海燃气账号密码，配置验证时转换为 MD5 后保存
 - 户号：接口字段 `customerId`
 - `companyCode`：账单接口请求体字段，当前抓包为 `DZ`
 
 ## 当前接口
 
-抓包文件 `Reqable.md` 已包含两个核心接口。当前集成暂时只使用账单接口，登录接口因为验证码问题后续再接入：
+抓包文件 `Reqable.md` 已包含三个核心接口：
 
-- 登录：`POST https://mpshgas.huaqi-it.com.cn/v1/user/common/doLogin`
+- 图形验证码：`GET https://web-api.shgas.com.cn/v1/thirdparty/common/img/getImgAuthCode`
+- 登录：`POST https://web-api.shgas.com.cn/v1/user/common/doLogin`
 - 账单：`POST https://mpshgas.huaqi-it.com.cn/v1/accountingService/queryBills`
 
-旧 qrcode 登录请求使用：
+账号密码登录请求使用：
 
 ```json
 {
-  "method": "JSCODE",
-  "qrCode": "<qrcode>",
-  "origin": "MiniPro",
-  "timestamp": 1783671186813
+  "mobile": "<手机号>",
+  "method": "PWD",
+  "pwd": "<密码MD5>",
+  "smsAuthCode": "",
+  "imgid": "<验证码imgid>",
+  "imgAuthCode": "<ddddocr识别结果>",
+  "qrCode": "",
+  "origin": "PC",
+  "timestamp": 1783674357850
 }
 ```
 
-旧 qrcode 登录响应返回：
+登录响应返回：
 
-- `token`
+- 运行时 `token`
 - `accountList[]`
 - `accountList[].customerId`
 - `accountList[].companyCode`
@@ -70,9 +77,10 @@ custom_components/sh_gas/
 配置流程：
 
 1. 用户通过 UI 添加 `Shanghai Gas`。
-2. 输入 `token`、户号和 `companyCode`。
-3. 集成调用账单接口验证配置。
-4. 创建 config entry 并生成传感器。
+2. 输入手机号、密码、户号和 `companyCode`。
+3. 集成获取图形验证码，使用本地 `ddddocr` 识别，调用账号密码登录接口获取 `token`。
+4. 集成调用账单接口验证配置。
+5. 创建 config entry 并生成传感器。
 
 ## 传感器
 
@@ -88,10 +96,10 @@ custom_components/sh_gas/
 
 ## 隐私与风险
 
-- `Reqable.md` 中仍包含真实个人信息和 token，提交公开 GitHub 仓库前必须脱敏。
-- 户号、token、openid、unionid、姓名、地址都必须视为敏感数据。
+- `Reqable.md` 中仍包含真实个人信息、手机号和运行时 token，提交公开 GitHub 仓库前必须脱敏。
+- 手机号、密码、密码 MD5、户号、运行时 token、openid、unionid、姓名、地址都必须视为敏感数据。
 - diagnostics 已对配置项做脱敏。
-- `token` 过期后需要用户更新配置。后续需要继续抓包确认 pwd 登录验证码接口、token 有效期，以及是否存在 refresh token 或其他持久登录凭据。
+- 登录状态失效后集成会用已保存的手机号和密码 MD5 自动重新登录。
 
 ## 验证命令
 
