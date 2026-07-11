@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import os
 import re
 import sys
 import time
@@ -28,6 +29,8 @@ ORIGIN = "MiniPro"
 PC_ORIGIN = "PC"
 TIMEOUT = 20
 CAPTCHA_RETRIES = 3
+DEFAULT_OCR_API_URL = "http://127.0.0.1:8000/ocr"
+ENV_OCR_API_URL = "SH_GAS_OCR_API_URL"
 
 GET_CAPTCHA_PATH = "/v1/thirdparty/common/img/getImgAuthCode"
 LOGIN_PATH = "/v1/user/common/doLogin"
@@ -145,14 +148,7 @@ def read_input() -> InputData:
                 or "DZ",
                 mobile=required_str(data, "mobile", "phone", "手机号"),
                 password=required_str(data, "password", "pwd", "密码"),
-                ocr_api_url=required_str(
-                    data,
-                    "ocr_api_url",
-                    "ocrApiUrl",
-                    "ocr_url",
-                    "ocrUrl",
-                    "OCR API 地址",
-                ),
+                ocr_api_url=ocr_api_url_from_data(data),
             )
         raise ShGasCliError("stdin 为空; 请交互输入或传入 JSON")
 
@@ -160,16 +156,34 @@ def read_input() -> InputData:
     company_code = input("companyCode [DZ]: ").strip() or "DZ"
     mobile = input("手机号 mobile: ").strip()
     password = getpass("密码 password: ").strip()
-    ocr_api_url = input("OCR API 地址 ocr_api_url: ").strip()
+    default_ocr_url = default_ocr_api_url()
+    ocr_api_url = input(f"OCR API 地址 ocr_api_url [{default_ocr_url}]: ").strip()
+    ocr_api_url = ocr_api_url or default_ocr_url
 
-    if not customer_id or not mobile or not password or not ocr_api_url:
-        raise ShGasCliError("customer_id、mobile、password 和 ocr_api_url 都不能为空")
+    if not customer_id or not mobile or not password:
+        raise ShGasCliError("customer_id、mobile 和 password 都不能为空")
     return InputData(
         customer_id=customer_id,
         company_code=company_code,
         mobile=mobile,
         password=password,
         ocr_api_url=ocr_api_url,
+    )
+
+
+def default_ocr_api_url() -> str:
+    """Return the default OCR API URL for local testing."""
+    return os.environ.get(ENV_OCR_API_URL, DEFAULT_OCR_API_URL).strip()
+
+
+def ocr_api_url_from_data(data: dict[str, Any]) -> str:
+    """Read OCR API URL from JSON input, or use the local test default."""
+    return (
+        optional_str(data.get("ocr_api_url"))
+        or optional_str(data.get("ocrApiUrl"))
+        or optional_str(data.get("ocr_url"))
+        or optional_str(data.get("ocrUrl"))
+        or default_ocr_api_url()
     )
 
 
@@ -239,6 +253,20 @@ def recognize_captcha(base64_image: str, ocr_api_url: str) -> str:
 
 def request_ocr_json(url: str, base64_image: str) -> dict[str, Any]:
     """Send a multipart/form-data request to the OCR API."""
+    data = request_ocr_raw_json(url, base64_image)
+    result_code = data.get("code")
+    if data.get("ok") is False or (
+        isinstance(result_code, int) and result_code not in {0, 200}
+    ):
+        error = data.get("error") if isinstance(data.get("error"), str) else None
+        message = data.get("message") if isinstance(data.get("message"), str) else None
+        raise ShGasCliError(f"OCR API {error or message or '识别失败'}")
+
+    return data
+
+
+def request_ocr_raw_json(url: str, base64_image: str) -> dict[str, Any]:
+    """Send a multipart/form-data request to the OCR API without result checks."""
     body, content_type = build_ocr_multipart_body(base64_image)
     request = Request(
         url,
@@ -272,13 +300,6 @@ def request_ocr_json(url: str, base64_image: str) -> dict[str, Any]:
 
     if not isinstance(data, dict):
         raise ShGasCliError("OCR API 返回不是 JSON 对象")
-
-    result_code = data.get("code")
-    if data.get("ok") is False or (
-        isinstance(result_code, int) and result_code != 0
-    ):
-        error = data.get("error") if isinstance(data.get("error"), str) else "识别失败"
-        raise ShGasCliError(f"OCR API {error}")
 
     return data
 

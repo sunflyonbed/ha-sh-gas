@@ -101,11 +101,19 @@ OCR 服务可以在 Home Assistant 中安装 [sml2h3/ddddocr-fastapi](https://gi
 python3 scripts/query_sh_gas.py
 ```
 
+只验证 OCR 服务：
+
+```bash
+python3 scripts/test_ocr.py
+```
+
 也可以通过 stdin 传 JSON：
 
 ```bash
-printf '%s\n' '{"mobile":"手机号","password":"原始密码","customer_id":"户号","company_code":"DZ","ocr_api_url":"http://127.0.0.1:9898/ocr"}' | python3 scripts/query_sh_gas.py
+printf '%s\n' '{"mobile":"手机号","password":"原始密码","customer_id":"户号","company_code":"DZ"}' | python3 scripts/query_sh_gas.py
 ```
+
+脚本默认使用本机 OCR 地址 `http://127.0.0.1:8000/ocr`。如果 OCR 服务不在这个地址，可以在 JSON 中传入 `ocr_api_url`，或设置环境变量 `SH_GAS_OCR_API_URL`。
 
 脚本会获取图形验证码，调用外部 OCR API 识别并登录，然后打印接近 Home Assistant 实体结构的 JSON，方便确认接口请求和字段解析是否正确。
 

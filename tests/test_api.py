@@ -84,6 +84,7 @@ def test_extract_ocr_code() -> None:
     assert _extract_ocr_code({"code": "GE1B"}) == "GE1B"
     assert _extract_ocr_code({"data": {"result": " ab12 "}}) == "ab12"
     assert _extract_ocr_code({"code": 0, "data": "CD34"}) == "CD34"
+    assert _extract_ocr_code({"code": 200, "data": "EF56"}) == "EF56"
     assert _extract_ocr_code({"ok": True}) is None
 
 

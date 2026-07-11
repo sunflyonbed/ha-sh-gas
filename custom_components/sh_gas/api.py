@@ -282,8 +282,10 @@ class ShanghaiGasClient:
             raise ShGasApiError("OCR API returned an unexpected response")
 
         result_code = data.get("code")
-        ok = data.get("ok", result_code == 0)
-        if ok is False or (isinstance(result_code, int) and result_code != 0):
+        ok = data.get("ok", result_code in {0, 200})
+        if ok is False or (
+            isinstance(result_code, int) and result_code not in {0, 200}
+        ):
             message = _optional_str(data.get("error")) or "OCR API failed"
             raise ShGasOcrError(message)
 
