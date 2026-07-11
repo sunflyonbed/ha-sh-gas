@@ -7,6 +7,7 @@ from datetime import date
 from custom_components.sh_gas.api import (
     _extract_ocr_code,
     _find_account,
+    _is_captcha_error,
     _normalize_captcha_code,
     _parse_bill,
     _password_hash,
@@ -82,4 +83,12 @@ def test_extract_ocr_code() -> None:
     """OCR API responses are accepted with common result field names."""
     assert _extract_ocr_code({"code": "GE1B"}) == "GE1B"
     assert _extract_ocr_code({"data": {"result": " ab12 "}}) == "ab12"
+    assert _extract_ocr_code({"code": 0, "data": "CD34"}) == "CD34"
     assert _extract_ocr_code({"ok": True}) is None
+
+
+def test_is_captcha_error() -> None:
+    """Captcha-related upstream auth errors are classified separately."""
+    assert _is_captcha_error("验证码错误")
+    assert _is_captcha_error("invalid imgAuthCode")
+    assert not _is_captcha_error("密码错误")

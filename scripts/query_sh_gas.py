@@ -20,6 +20,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from uuid import uuid4
 
 BASE_URL = "https://mpshgas.huaqi-it.com.cn"
 WEB_API_BASE_URL = "https://web-api.shgas.com.cn"
@@ -226,7 +227,7 @@ def recognize_captcha(base64_image: str, ocr_api_url: str) -> str:
     if not ocr_api_url.startswith(("http://", "https://")):
         raise ShGasCliError("OCR API 地址必须以 http:// 或 https:// 开头")
 
-    data = request_ocr_json(ocr_api_url, {"image": base64_image})
+    data = request_ocr_json(ocr_api_url, base64_image)
     result = extract_ocr_code(data)
     if result is None:
         raise ShGasCliError("OCR API 未返回验证码")
@@ -236,16 +237,16 @@ def recognize_captcha(base64_image: str, ocr_api_url: str) -> str:
     return normalized
 
 
-def request_ocr_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Send a JSON request to the OCR API."""
-    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+def request_ocr_json(url: str, base64_image: str) -> dict[str, Any]:
+    """Send a multipart/form-data request to the OCR API."""
+    body, content_type = build_ocr_multipart_body(base64_image)
     request = Request(
         url,
         data=body,
         method="POST",
         headers={
             "Accept": "application/json",
-            "Content-Type": "application/json;charset=UTF-8",
+            "Content-Type": content_type,
         },
     )
 
@@ -272,11 +273,32 @@ def request_ocr_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ShGasCliError("OCR API 返回不是 JSON 对象")
 
-    if data.get("ok") is False:
+    result_code = data.get("code")
+    if data.get("ok") is False or (
+        isinstance(result_code, int) and result_code != 0
+    ):
         error = data.get("error") if isinstance(data.get("error"), str) else "识别失败"
         raise ShGasCliError(f"OCR API {error}")
 
     return data
+
+
+def build_ocr_multipart_body(base64_image: str) -> tuple[bytes, str]:
+    """Build the multipart request body expected by ddddocr-fastapi."""
+    boundary = f"----shgas{uuid4().hex}"
+    chunks = [
+        multipart_field(boundary, "image", base64_image),
+        f"--{boundary}--\r\n".encode(),
+    ]
+    return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
+
+
+def multipart_field(boundary: str, name: str, value: str) -> bytes:
+    return (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+        f"{value}\r\n"
+    ).encode()
 
 
 def extract_ocr_code(data: dict[str, Any]) -> str | None:

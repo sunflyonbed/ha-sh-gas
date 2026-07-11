@@ -12,7 +12,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from aiohttp import ClientSession
+    from aiohttp import ClientSession, FormData
 
 from .const import BASE_URL, ORIGIN, PC_ORIGIN, WEB_API_BASE_URL
 
@@ -33,12 +33,24 @@ class ShGasAuthError(ShGasError):
     """Raised when authentication fails."""
 
 
+class ShGasCaptchaError(ShGasAuthError):
+    """Raised when Shanghai Gas rejects the captcha."""
+
+
+class ShGasOcrError(ShGasAuthError):
+    """Raised when the OCR API response cannot be used."""
+
+
 class ShGasApiError(ShGasError):
     """Raised when the upstream API returns an error."""
 
 
 class ShGasConnectionError(ShGasError):
     """Raised when the upstream API cannot be reached."""
+
+
+class ShGasOcrConnectionError(ShGasConnectionError):
+    """Raised when the OCR API cannot be reached."""
 
 
 @dataclass(slots=True, frozen=True)
@@ -200,7 +212,11 @@ class ShanghaiGasClient:
                 return
             except (ShGasAuthError, ShGasApiError) as err:
                 last_error = err
-                _LOGGER.debug("Shanghai Gas login attempt %s failed", attempt + 1)
+                _LOGGER.debug(
+                    "Shanghai Gas login attempt %s failed: %s",
+                    attempt + 1,
+                    err,
+                )
 
         if last_error is not None:
             raise last_error
@@ -232,39 +248,44 @@ class ShanghaiGasClient:
         data = await self._async_ocr_request(base64_image)
         code = _extract_ocr_code(data)
         if code is None:
-            raise ShGasAuthError("OCR API did not return a captcha code")
+            raise ShGasOcrError("OCR API did not return a captcha code")
 
         normalized = _normalize_captcha_code(code)
         if normalized is None:
-            raise ShGasAuthError("OCR API returned an invalid captcha code")
+            raise ShGasOcrError("OCR API returned an invalid captcha code")
         return normalized
 
-    async def _async_ocr_request(self, base64_image: str) -> dict[str, Any]:
+    async def _async_ocr_request(
+        self,
+        base64_image: str,
+    ) -> dict[str, Any]:
         try:
             from aiohttp import ClientError, ClientResponseError
 
+            form = _ocr_form_data(base64_image)
             async with asyncio.timeout(REQUEST_TIMEOUT):
                 async with self._session.post(
                     self._ocr_api_url,
-                    json={"image": base64_image},
+                    data=form,
                     headers={"accept": "application/json"},
                 ) as response:
                     response.raise_for_status()
                     data = await response.json(content_type=None)
         except TimeoutError as err:
-            raise ShGasConnectionError("Timed out connecting to OCR API") from err
+            raise ShGasOcrConnectionError("Timed out connecting to OCR API") from err
         except (ClientResponseError, ClientError) as err:
-            raise ShGasConnectionError("Error connecting to OCR API") from err
+            raise ShGasOcrConnectionError("Error connecting to OCR API") from err
         except ValueError as err:
             raise ShGasApiError("OCR API returned invalid JSON") from err
 
         if not isinstance(data, dict):
             raise ShGasApiError("OCR API returned an unexpected response")
 
-        ok = data.get("ok")
-        if ok is False:
+        result_code = data.get("code")
+        ok = data.get("ok", result_code == 0)
+        if ok is False or (isinstance(result_code, int) and result_code != 0):
             message = _optional_str(data.get("error")) or "OCR API failed"
-            raise ShGasAuthError(message)
+            raise ShGasOcrError(message)
 
         return data
 
@@ -367,6 +388,8 @@ class ShanghaiGasClient:
                 or "Shanghai Gas request failed"
             )
             if path == LOGIN_PATH:
+                if _is_captcha_error(message):
+                    raise ShGasCaptchaError(message)
                 raise ShGasAuthError(message)
             if code in {"401", "403", "1001", "1002", "2001"}:
                 raise ShGasAuthError(message)
@@ -521,6 +544,14 @@ def _password_hash(password: str) -> str:
     return hashlib.md5(password.encode()).hexdigest()
 
 
+def _ocr_form_data(base64_image: str) -> FormData:
+    from aiohttp import FormData
+
+    form = FormData()
+    form.add_field("image", base64_image, content_type="text/plain")
+    return form
+
+
 def _extract_ocr_code(data: dict[str, Any]) -> str | None:
     for key in ("code", "result", "text", "captcha", "captcha_code"):
         value = data.get(key)
@@ -541,6 +572,20 @@ def _normalize_captcha_code(value: str) -> str | None:
     if len(normalized) != 4:
         return None
     return normalized
+
+
+def _is_captcha_error(message: str) -> bool:
+    lowered = message.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "captcha",
+            "imgauthcode",
+            "imgid",
+            "验证码",
+            "校验码",
+        )
+    )
 
 
 def _timestamp_ms() -> int:

@@ -25,7 +25,10 @@
     },
     "error": {
       "cannot_connect": "Cannot connect to Shanghai Gas",
-      "invalid_auth": "Authentication failed. Check mobile, password, customer id, companyCode, and OCR API URL",
+      "cannot_connect_ocr": "Cannot connect to the OCR API. Check that Home Assistant can reach the URL",
+      "invalid_auth": "Authentication failed. Check mobile, password, customer id, and companyCode",
+      "invalid_captcha": "Captcha verification failed. Check whether the OCR API result is correct",
+      "ocr_failed": "OCR API did not return a valid captcha code. Check the OCR API response format",
       "unknown": "Unexpected error"
     },
     "abort": {

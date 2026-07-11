@@ -25,7 +25,10 @@
     },
     "error": {
       "cannot_connect": "无法连接到上海燃气服务",
-      "invalid_auth": "认证失败，请检查手机号、密码、户号、companyCode 和 OCR API 地址",
+      "cannot_connect_ocr": "无法连接到 OCR API，请检查地址是否能从 Home Assistant 访问",
+      "invalid_auth": "认证失败，请检查手机号、密码、户号和 companyCode",
+      "invalid_captcha": "验证码校验失败，请检查 OCR API 识别结果是否正确",
+      "ocr_failed": "OCR API 未返回有效验证码，请检查 OCR API 响应格式",
       "unknown": "未知错误"
     },
     "abort": {

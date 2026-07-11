@@ -14,7 +14,10 @@ from .api import (
     ShanghaiGasClient,
     ShGasApiError,
     ShGasAuthError,
+    ShGasCaptchaError,
     ShGasConnectionError,
+    ShGasOcrConnectionError,
+    ShGasOcrError,
     _password_hash,
 )
 from .const import (
@@ -115,6 +118,12 @@ class ShGasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     async_get_clientsession(self.hass),
                     user_input,
                 )
+            except ShGasOcrError:
+                errors["base"] = "ocr_failed"
+            except ShGasOcrConnectionError:
+                errors["base"] = "cannot_connect_ocr"
+            except ShGasCaptchaError:
+                errors["base"] = "invalid_captcha"
             except ShGasAuthError:
                 errors["base"] = "invalid_auth"
             except ShGasConnectionError:
@@ -170,6 +179,12 @@ class ShGasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_CUSTOMER_ID: customer_id,
                     },
                 )
+            except ShGasOcrError:
+                errors["base"] = "ocr_failed"
+            except ShGasOcrConnectionError:
+                errors["base"] = "cannot_connect_ocr"
+            except ShGasCaptchaError:
+                errors["base"] = "invalid_captcha"
             except ShGasAuthError:
                 errors["base"] = "invalid_auth"
             except ShGasConnectionError:

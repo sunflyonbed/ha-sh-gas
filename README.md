@@ -46,8 +46,10 @@
 - 手机号：上海燃气账号手机号。
 - 密码：上海燃气账号密码。集成会在配置验证时转换为 MD5 后保存。
 - 户号：抓包和返回数据中的 `customerId`。
-- OCR API 地址：完整验证码识别接口地址，例如 `http://127.0.0.1:9898/ocr`。集成会以 JSON 请求体 `{"image": "<base64>"}` POST 到该地址，并从响应中的 `code`、`result`、`text`、`captcha`、`captcha_code` 或 `data` 字段读取验证码文本。
+- OCR API 地址：完整验证码识别接口地址，例如 `http://127.0.0.1:9898/ocr`。集成会以 `multipart/form-data` POST 到该地址，只提交 `image` 字段，值为上海燃气接口返回的 `base64Image` 原始字符串，并从响应中的 `data`、`result`、`text`、`captcha`、`captcha_code` 或字符串类型的 `code` 字段读取验证码文本。`{"code": 0, "data": "AB12"}` 会被视为成功响应。
 - `companyCode`：账单接口请求体里的 `companyCode`，当前抓包为 `DZ`。
+
+OCR 服务可以在 Home Assistant 中安装 [sml2h3/ddddocr-fastapi](https://github.com/sml2h3/ddddocr-fastapi)。安装并启动后，先访问 `http://HAIP:8000/docs` 检查是否能看到 Swagger 页面；如果能打开，集成中的 OCR API 地址通常填写 `http://HAIP:8000/ocr`。
 
 集成会调用 `/v1/thirdparty/common/img/getImgAuthCode` 获取图形验证码，把验证码图片发送到配置的 OCR API，然后调用 `/v1/user/common/doLogin` 登录。登录返回的运行时 `token` 用于调用 `/v1/accountingService/queryBills` 查询账单；如果后续刷新时登录状态失效，集成会自动重新登录。
 
