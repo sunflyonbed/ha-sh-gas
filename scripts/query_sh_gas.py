@@ -2,23 +2,20 @@
 """Query Shanghai Gas directly and print Home Assistant-like entities.
 
 This script is intentionally standalone from Home Assistant. Password login
-mode requires ddddocr for local image captcha recognition.
+mode sends image captchas to an external OCR API.
 """
 
 from __future__ import annotations
 
-import base64
-import binascii
-from dataclasses import asdict, dataclass
-from datetime import date, datetime
-from functools import lru_cache
-from getpass import getpass
 import gzip
 import hashlib
 import json
 import re
 import sys
 import time
+from dataclasses import asdict, dataclass
+from datetime import date, datetime
+from getpass import getpass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -48,6 +45,7 @@ class InputData:
     company_code: str
     mobile: str
     password: str
+    ocr_api_url: str
 
 
 @dataclass(frozen=True)
@@ -146,21 +144,31 @@ def read_input() -> InputData:
                 or "DZ",
                 mobile=required_str(data, "mobile", "phone", "手机号"),
                 password=required_str(data, "password", "pwd", "密码"),
+                ocr_api_url=required_str(
+                    data,
+                    "ocr_api_url",
+                    "ocrApiUrl",
+                    "ocr_url",
+                    "ocrUrl",
+                    "OCR API 地址",
+                ),
             )
-        raise ShGasCliError("stdin 为空；请交互输入或传入 JSON")
+        raise ShGasCliError("stdin 为空; 请交互输入或传入 JSON")
 
     customer_id = input("户号 customer_id: ").strip()
     company_code = input("companyCode [DZ]: ").strip() or "DZ"
     mobile = input("手机号 mobile: ").strip()
     password = getpass("密码 password: ").strip()
+    ocr_api_url = input("OCR API 地址 ocr_api_url: ").strip()
 
-    if not customer_id or not mobile or not password:
-        raise ShGasCliError("customer_id、mobile 和 password 都不能为空")
+    if not customer_id or not mobile or not password or not ocr_api_url:
+        raise ShGasCliError("customer_id、mobile、password 和 ocr_api_url 都不能为空")
     return InputData(
         customer_id=customer_id,
         company_code=company_code,
         mobile=mobile,
         password=password,
+        ocr_api_url=ocr_api_url,
     )
 
 
@@ -171,7 +179,10 @@ def authenticate(input_data: InputData) -> AuthInfo:
     for attempt in range(CAPTCHA_RETRIES):
         try:
             captcha = get_captcha()
-            img_auth_code = recognize_captcha(captcha["base64_image"])
+            img_auth_code = recognize_captcha(
+                captcha["base64_image"],
+                input_data.ocr_api_url,
+            )
             auth = login_with_password(
                 mobile=input_data.mobile,
                 password_hash_value=password_hash_value,
@@ -181,7 +192,7 @@ def authenticate(input_data: InputData) -> AuthInfo:
                 img_auth_code=img_auth_code,
             )
             print(
-                f"验证码识别为 {img_auth_code}，第 {attempt + 1} 次登录成功",
+                f"验证码识别为 {img_auth_code}, 第 {attempt + 1} 次登录成功",
                 file=sys.stderr,
             )
             return auth
@@ -210,29 +221,78 @@ def get_captcha() -> dict[str, str]:
     }
 
 
-def recognize_captcha(base64_image: str) -> str:
-    """Recognize a four-character captcha with local ddddocr."""
-    image = decode_base64_image(base64_image)
-    result = captcha_ocr().classification(image)
-    if not isinstance(result, str):
-        raise ShGasCliError("ddddocr 返回了无效结果")
+def recognize_captcha(base64_image: str, ocr_api_url: str) -> str:
+    """Recognize a four-character captcha with an external OCR API."""
+    if not ocr_api_url.startswith(("http://", "https://")):
+        raise ShGasCliError("OCR API 地址必须以 http:// 或 https:// 开头")
+
+    data = request_ocr_json(ocr_api_url, {"image": base64_image})
+    result = extract_ocr_code(data)
+    if result is None:
+        raise ShGasCliError("OCR API 未返回验证码")
     normalized = normalize_captcha_code(result)
     if normalized is None:
         raise ShGasCliError(f"验证码识别结果不是 4 位字符: {result!r}")
     return normalized
 
 
-@lru_cache(maxsize=1)
-def captcha_ocr() -> Any:
-    """Create and cache the ddddocr model."""
-    try:
-        import ddddocr
-    except ImportError as err:
-        raise ShGasCliError(
-            "缺少 ddddocr，请先运行: python3 -m pip install ddddocr==1.6.1"
-        ) from err
+def request_ocr_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Send a JSON request to the OCR API."""
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json;charset=UTF-8",
+        },
+    )
 
-    return ddddocr.DdddOcr(show_ad=False)
+    try:
+        with urlopen(request, timeout=TIMEOUT) as response:
+            response_body = response.read()
+            if response.headers.get("Content-Encoding") == "gzip":
+                response_body = gzip.decompress(response_body)
+    except HTTPError as err:
+        detail = err.read().decode("utf-8", errors="replace")
+        raise ShGasCliError(f"OCR API HTTP {err.code}: {detail}") from err
+    except URLError as err:
+        raise ShGasCliError(f"OCR API 网络请求失败: {err.reason}") from err
+    except TimeoutError as err:
+        raise ShGasCliError("OCR API 请求超时") from err
+    except OSError as err:
+        raise ShGasCliError(f"OCR API 响应解压失败: {err}") from err
+
+    try:
+        data = json.loads(response_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as err:
+        raise ShGasCliError("OCR API 返回不是有效 JSON") from err
+
+    if not isinstance(data, dict):
+        raise ShGasCliError("OCR API 返回不是 JSON 对象")
+
+    if data.get("ok") is False:
+        error = data.get("error") if isinstance(data.get("error"), str) else "识别失败"
+        raise ShGasCliError(f"OCR API {error}")
+
+    return data
+
+
+def extract_ocr_code(data: dict[str, Any]) -> str | None:
+    """Extract a captcha code from common OCR API response shapes."""
+    for key in ("code", "result", "text", "captcha", "captcha_code"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        return extract_ocr_code(nested)
+    if isinstance(nested, str) and nested.strip():
+        return nested.strip()
+
+    return None
 
 
 def login_with_password(
@@ -270,7 +330,7 @@ def login_with_password(
 
     account = find_account(accounts, customer_id)
     if account is None:
-        raise ShGasCliError("登录成功，但该账号未绑定指定户号")
+        raise ShGasCliError("登录成功, 但该账号未绑定指定户号")
 
     if not account.company_code:
         account = GasAccount(
@@ -382,7 +442,7 @@ def request_json(
             if isinstance(data.get("resultInfo"), str)
             else "请求失败"
         )
-        raise ShGasCliError(f"{msg}，resultCode={data.get('resultCode')}")
+        raise ShGasCliError(f"{msg}, resultCode={data.get('resultCode')}")
 
     return data
 
@@ -431,7 +491,7 @@ def find_account(accounts: list[Any], customer_id: str) -> GasAccount | None:
 
         company_code = optional_str(item.get("companyCode"))
         if company_code is None:
-            raise ShGasCliError("匹配到户号，但缺少 companyCode")
+            raise ShGasCliError("匹配到户号, 但缺少 companyCode")
 
         return GasAccount(
             customer_id=customer_id,
@@ -595,16 +655,6 @@ def password_hash(password: str) -> str:
     if re.fullmatch(r"[0-9a-fA-F]{32}", password):
         return password.lower()
     return hashlib.md5(password.encode()).hexdigest()
-
-
-def decode_base64_image(value: str) -> bytes:
-    """Decode a base64 captcha image."""
-    if "," in value:
-        value = value.split(",", 1)[1]
-    try:
-        return base64.b64decode(value)
-    except binascii.Error as err:
-        raise ShGasCliError("验证码图片不是有效 base64") from err
 
 
 def normalize_captcha_code(value: str) -> str | None:

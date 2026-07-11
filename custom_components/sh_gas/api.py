@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
-from dataclasses import dataclass
-from datetime import date, datetime
-from functools import lru_cache
 import hashlib
 import logging
 import re
 import time
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -111,6 +108,7 @@ class ShanghaiGasClient:
         company_code: str,
         mobile: str | None = None,
         password_hash: str | None = None,
+        ocr_api_url: str | None = None,
     ) -> None:
         """Initialize the API client."""
         self._session = session
@@ -118,6 +116,7 @@ class ShanghaiGasClient:
         self._customer_id = customer_id
         self._mobile = mobile or None
         self._password_hash = password_hash or None
+        self._ocr_api_url = ocr_api_url or None
         self._account = GasAccount(
             customer_id=customer_id,
             company_code=company_code,
@@ -227,17 +226,47 @@ class ShanghaiGasClient:
         return {"imgid": imgid, "base64_image": base64_image}
 
     async def _async_recognize_captcha(self, base64_image: str) -> str:
-        try:
-            image = _decode_base64_image(base64_image)
-        except ValueError as err:
-            raise ShGasApiError("Shanghai Gas returned invalid captcha image") from err
+        if not self._ocr_api_url:
+            raise ShGasAuthError("Missing OCR API URL")
 
-        loop = asyncio.get_running_loop()
-        code = await loop.run_in_executor(None, _recognize_captcha_sync, image)
+        data = await self._async_ocr_request(base64_image)
+        code = _extract_ocr_code(data)
+        if code is None:
+            raise ShGasAuthError("OCR API did not return a captcha code")
+
         normalized = _normalize_captcha_code(code)
         if normalized is None:
-            raise ShGasAuthError("Failed to recognize captcha")
+            raise ShGasAuthError("OCR API returned an invalid captcha code")
         return normalized
+
+    async def _async_ocr_request(self, base64_image: str) -> dict[str, Any]:
+        try:
+            from aiohttp import ClientError, ClientResponseError
+
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                async with self._session.post(
+                    self._ocr_api_url,
+                    json={"image": base64_image},
+                    headers={"accept": "application/json"},
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json(content_type=None)
+        except TimeoutError as err:
+            raise ShGasConnectionError("Timed out connecting to OCR API") from err
+        except (ClientResponseError, ClientError) as err:
+            raise ShGasConnectionError("Error connecting to OCR API") from err
+        except ValueError as err:
+            raise ShGasApiError("OCR API returned invalid JSON") from err
+
+        if not isinstance(data, dict):
+            raise ShGasApiError("OCR API returned an unexpected response")
+
+        ok = data.get("ok")
+        if ok is False:
+            message = _optional_str(data.get("error")) or "OCR API failed"
+            raise ShGasAuthError(message)
+
+        return data
 
     async def _async_password_login(self, imgid: str, img_auth_code: str) -> None:
         payload = {
@@ -492,30 +521,19 @@ def _password_hash(password: str) -> str:
     return hashlib.md5(password.encode()).hexdigest()
 
 
-def _decode_base64_image(value: str) -> bytes:
-    if "," in value:
-        value = value.split(",", 1)[1]
-    try:
-        return base64.b64decode(value)
-    except binascii.Error as err:
-        raise ValueError("Invalid base64 image") from err
+def _extract_ocr_code(data: dict[str, Any]) -> str | None:
+    for key in ("code", "result", "text", "captcha", "captcha_code"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
 
+    nested = data.get("data")
+    if isinstance(nested, dict):
+        return _extract_ocr_code(nested)
+    if isinstance(nested, str) and nested.strip():
+        return nested.strip()
 
-@lru_cache(maxsize=1)
-def _captcha_ocr() -> Any:
-    try:
-        import ddddocr
-    except ImportError as err:
-        raise ShGasAuthError("ddddocr is not installed") from err
-
-    return ddddocr.DdddOcr(show_ad=False)
-
-
-def _recognize_captcha_sync(image: bytes) -> str:
-    result = _captcha_ocr().classification(image)
-    if not isinstance(result, str):
-        raise ShGasAuthError("ddddocr returned an invalid result")
-    return result
+    return None
 
 
 def _normalize_captcha_code(value: str) -> str | None:

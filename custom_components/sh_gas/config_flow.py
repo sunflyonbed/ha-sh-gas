@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from aiohttp import ClientSession
 import voluptuous as vol
-
+from aiohttp import ClientSession
 from homeassistant import config_entries
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -22,6 +21,7 @@ from .const import (
     CONF_COMPANY_CODE,
     CONF_CUSTOMER_ID,
     CONF_MOBILE,
+    CONF_OCR_API_URL,
     CONF_PASSWORD,
     CONF_PASSWORD_HASH,
     DEFAULT_COMPANY_CODE,
@@ -35,18 +35,20 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_PASSWORD): selector.TextSelector(
             selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
         ),
+        vol.Required(CONF_OCR_API_URL): str,
         vol.Optional(CONF_COMPANY_CODE, default=DEFAULT_COMPANY_CODE): str,
     }
 )
 
 
-def _reauth_schema(company_code: str) -> vol.Schema:
+def _reauth_schema(company_code: str, ocr_api_url: str) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_MOBILE): str,
             vol.Required(CONF_PASSWORD): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
             ),
+            vol.Required(CONF_OCR_API_URL, default=ocr_api_url): str,
             vol.Optional(CONF_COMPANY_CODE, default=company_code): str,
         }
     )
@@ -64,8 +66,11 @@ async def validate_input(
         str(data.get(CONF_COMPANY_CODE, DEFAULT_COMPANY_CODE)).strip()
         or DEFAULT_COMPANY_CODE
     )
-    if not customer_id or not mobile:
-        raise ShGasAuthError("Missing mobile or customer id")
+    ocr_api_url = str(data[CONF_OCR_API_URL]).strip()
+    if not customer_id or not mobile or not ocr_api_url:
+        raise ShGasAuthError("Missing mobile, customer id, or OCR API URL")
+    if not ocr_api_url.startswith(("http://", "https://")):
+        raise ShGasAuthError("OCR API URL must start with http:// or https://")
 
     client = ShanghaiGasClient(
         session=session,
@@ -73,6 +78,7 @@ async def validate_input(
         company_code=company_code,
         mobile=mobile,
         password_hash=password_hash,
+        ocr_api_url=ocr_api_url,
     )
     await client.async_login()
     await client.async_get_bills()
@@ -81,6 +87,7 @@ async def validate_input(
         CONF_CUSTOMER_ID: customer_id,
         CONF_MOBILE: mobile,
         CONF_PASSWORD_HASH: password_hash,
+        CONF_OCR_API_URL: ocr_api_url,
         CONF_COMPANY_CODE: client.account.company_code,
     }
 
@@ -152,6 +159,7 @@ class ShGasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         company_code = str(
             self._reauth_data.get(CONF_COMPANY_CODE, DEFAULT_COMPANY_CODE)
         )
+        ocr_api_url = str(self._reauth_data.get(CONF_OCR_API_URL) or "")
 
         if user_input is not None:
             try:
@@ -181,6 +189,6 @@ class ShGasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=_reauth_schema(company_code),
+            data_schema=_reauth_schema(company_code, ocr_api_url),
             errors=errors,
         )

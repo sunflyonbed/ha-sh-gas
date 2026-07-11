@@ -8,6 +8,7 @@ from .const import (
     CONF_COMPANY_CODE,
     CONF_CUSTOMER_ID,
     CONF_MOBILE,
+    CONF_OCR_API_URL,
     CONF_PASSWORD_HASH,
     DATA_CLIENT,
     DATA_COORDINATOR,
@@ -31,6 +32,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
         company_code=str(entry.data.get(CONF_COMPANY_CODE, DEFAULT_COMPANY_CODE)),
         mobile=str(entry.data.get(CONF_MOBILE) or "") or None,
         password_hash=str(entry.data.get(CONF_PASSWORD_HASH) or "") or None,
+        ocr_api_url=str(entry.data.get(CONF_OCR_API_URL) or "") or None,
     )
     coordinator = ShGasDataUpdateCoordinator(hass, client)
     await coordinator.async_config_entry_first_refresh()

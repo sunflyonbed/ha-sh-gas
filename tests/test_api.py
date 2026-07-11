@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 from custom_components.sh_gas.api import (
+    _extract_ocr_code,
     _find_account,
     _normalize_captcha_code,
     _parse_bill,
@@ -75,3 +76,10 @@ def test_normalize_captcha_code() -> None:
     """OCR output is normalized to the four-character captcha format."""
     assert _normalize_captcha_code(" g e1b ") == "GE1B"
     assert _normalize_captcha_code("GE1") is None
+
+
+def test_extract_ocr_code() -> None:
+    """OCR API responses are accepted with common result field names."""
+    assert _extract_ocr_code({"code": "GE1B"}) == "GE1B"
+    assert _extract_ocr_code({"data": {"result": " ab12 "}}) == "ab12"
+    assert _extract_ocr_code({"ok": True}) is None

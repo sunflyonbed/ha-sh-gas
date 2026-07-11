@@ -21,6 +21,7 @@ CONF_COMPANY_CODE = "company_code"
 CONF_MOBILE = "mobile"
 CONF_PASSWORD = "password"
 CONF_PASSWORD_HASH = "password_hash"
+CONF_OCR_API_URL = "ocr_api_url"
 
 DATA_COORDINATOR = "coordinator"
 DATA_CLIENT = "client"

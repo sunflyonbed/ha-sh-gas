@@ -1,6 +1,6 @@
 # Shanghai Gas for Home Assistant
 
-上海燃气 Home Assistant 自定义集成。当前基于上海燃气网站/微信小程序接口实现，支持使用账号密码登录，自动获取图形验证码并通过本地 `ddddocr` 识别，然后查询燃气账单/用气记录并在 Home Assistant 中生成传感器实体。
+上海燃气 Home Assistant 自定义集成。当前基于上海燃气网站/微信小程序接口实现，支持使用账号密码登录，自动获取图形验证码并通过外部 OCR API 识别，然后查询燃气账单/用气记录并在 Home Assistant 中生成传感器实体。
 
 ## 功能
 
@@ -46,9 +46,10 @@
 - 手机号：上海燃气账号手机号。
 - 密码：上海燃气账号密码。集成会在配置验证时转换为 MD5 后保存。
 - 户号：抓包和返回数据中的 `customerId`。
+- OCR API 地址：完整验证码识别接口地址，例如 `http://127.0.0.1:9898/ocr`。集成会以 JSON 请求体 `{"image": "<base64>"}` POST 到该地址，并从响应中的 `code`、`result`、`text`、`captcha`、`captcha_code` 或 `data` 字段读取验证码文本。
 - `companyCode`：账单接口请求体里的 `companyCode`，当前抓包为 `DZ`。
 
-集成会调用 `/v1/thirdparty/common/img/getImgAuthCode` 获取图形验证码，使用本地 `ddddocr` 识别验证码，然后调用 `/v1/user/common/doLogin` 登录。登录返回的运行时 `token` 用于调用 `/v1/accountingService/queryBills` 查询账单；如果后续刷新时登录状态失效，集成会自动重新登录。
+集成会调用 `/v1/thirdparty/common/img/getImgAuthCode` 获取图形验证码，把验证码图片发送到配置的 OCR API，然后调用 `/v1/user/common/doLogin` 登录。登录返回的运行时 `token` 用于调用 `/v1/accountingService/queryBills` 查询账单；如果后续刷新时登录状态失效，集成会自动重新登录。
 
 同一个户号只能添加一次。
 
@@ -85,8 +86,8 @@
 
 ## 当前限制
 
-- 当前只实现了账号密码登录、图形验证码识别和账单查询接口。
-- 图形验证码识别依赖本地 `ddddocr`，验证码样式变化时可能需要重试或调整识别逻辑。
+- 当前只实现了账号密码登录、外部 OCR API 图形验证码识别和账单查询接口。
+- 图形验证码识别由外部 OCR API 服务负责；HA 集成只传递验证码图片并读取返回文本。
 - 暂不支持自动绑定户号、解绑银行卡、缴费或短信验证码流程。
 - 如果上海燃气调整小程序接口、请求头或风控策略，需要重新抓包并更新 API 客户端。
 
@@ -101,10 +102,10 @@ python3 scripts/query_sh_gas.py
 也可以通过 stdin 传 JSON：
 
 ```bash
-printf '%s\n' '{"mobile":"手机号","password":"原始密码","customer_id":"户号","company_code":"DZ"}' | python3 scripts/query_sh_gas.py
+printf '%s\n' '{"mobile":"手机号","password":"原始密码","customer_id":"户号","company_code":"DZ","ocr_api_url":"http://127.0.0.1:9898/ocr"}' | python3 scripts/query_sh_gas.py
 ```
 
-脚本会获取图形验证码，使用本地 `ddddocr` 识别并登录，然后打印接近 Home Assistant 实体结构的 JSON，方便确认接口请求和字段解析是否正确。
+脚本会获取图形验证码，调用外部 OCR API 识别并登录，然后打印接近 Home Assistant 实体结构的 JSON，方便确认接口请求和字段解析是否正确。
 
 基础检查：
 

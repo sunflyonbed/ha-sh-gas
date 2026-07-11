@@ -12,6 +12,7 @@ from .const import (
     CONF_COMPANY_CODE,
     CONF_CUSTOMER_ID,
     CONF_MOBILE,
+    CONF_OCR_API_URL,
     CONF_PASSWORD,
     CONF_PASSWORD_HASH,
 )
@@ -20,6 +21,7 @@ TO_REDACT = {
     CONF_COMPANY_CODE,
     CONF_CUSTOMER_ID,
     CONF_MOBILE,
+    CONF_OCR_API_URL,
     CONF_PASSWORD,
     CONF_PASSWORD_HASH,
     "account_code",

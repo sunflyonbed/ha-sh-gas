@@ -9,6 +9,7 @@
 - 手机号：上海燃气账号手机号
 - 密码：上海燃气账号密码，配置验证时转换为 MD5 后保存
 - 户号：接口字段 `customerId`
+- OCR API 地址：验证码识别接口完整 URL
 - `companyCode`：账单接口请求体字段，当前抓包为 `DZ`
 
 ## 当前接口
@@ -28,7 +29,7 @@
   "pwd": "<密码MD5>",
   "smsAuthCode": "",
   "imgid": "<验证码imgid>",
-  "imgAuthCode": "<ddddocr识别结果>",
+  "imgAuthCode": "<OCR API识别结果>",
   "qrCode": "",
   "origin": "PC",
   "timestamp": 1783674357850
@@ -77,8 +78,8 @@ custom_components/sh_gas/
 配置流程：
 
 1. 用户通过 UI 添加 `Shanghai Gas`。
-2. 输入手机号、密码、户号和 `companyCode`。
-3. 集成获取图形验证码，使用本地 `ddddocr` 识别，调用账号密码登录接口获取 `token`。
+2. 输入手机号、密码、户号、OCR API 地址和 `companyCode`。
+3. 集成获取图形验证码，调用外部 OCR API 识别，调用账号密码登录接口获取 `token`。
 4. 集成调用账单接口验证配置。
 5. 创建 config entry 并生成传感器。
 
